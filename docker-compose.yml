@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  modular-ai-mvp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: modular-ai-mvp-app
+    ports:
+      - "8501:8501"
+    volumes:
+      # Persist model cache if real models were downloaded
+      - ./model_cache:/app/model_cache 
+      # For development, you might want to mount the whole app directory:
+      # - .:/app 
+    environment:
+      - STREAMLIT_SERVER_PORT=8501 
+      # Add any other environment variables your app might need
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    # deploy: # Example resource limits (optional)
+    #   resources:
+    #     limits:
+    #       cpus: '1.0'
+    #       memory: 2G
+```
