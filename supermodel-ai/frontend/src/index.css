@@ -1,0 +1,28 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Example global styles */
+body {
+  @apply bg-neutral-100 text-neutral-800 dark:bg-neutral-900 dark:text-neutral-200;
+  font-family: 'Inter', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom scrollbar (optional) */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+::-webkit-scrollbar-track {
+    @apply bg-neutral-200 dark:bg-neutral-700;
+    border-radius: 10px;
+}
+::-webkit-scrollbar-thumb {
+    @apply bg-primary-500 dark:bg-primary-600; /* Assuming primary has a 500 and 600 shade */
+    border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+    @apply bg-primary-600 dark:bg-primary-500; /* Assuming primary has a 600 and 500 shade */
+}

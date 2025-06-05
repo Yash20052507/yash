@@ -1,0 +1,116 @@
+# supermodel-ai/docker-compose.yml
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:14-alpine
+    container_name: ${COMPOSE_PROJECT_NAME:-supermodelai}_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: ${POSTGRES_DB:-supermodel_ai_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-supermodel_ai_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mongodb:
+    image: mongo:6.0 # Consider a specific minor version for stability e.g. mongo:6.0.12
+    container_name: ${COMPOSE_PROJECT_NAME:-supermodelai}_mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-mongoadmin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:-changeme}
+      # MONGO_INITDB_DATABASE: this is for creating a specific DB at init, but app can create it on connect.
+    volumes:
+      - mongodb_data:/data/db
+    ports:
+      - "${MONGODB_PORT:-27017}:27017"
+    healthcheck:
+      # Use the actual database name in the connection string for the health check.
+      # If MONGO_INITDB_DATABASE is set, it's used to create a DB. The app will use MONGODB_INITDB_DATABASE from .env
+      test: echo 'db.runCommand("ping").ok' | mongosh --norc --quiet --host localhost --port 27017 --username ${MONGO_INITDB_ROOT_USERNAME:-mongoadmin} --password ${MONGO_INITDB_ROOT_PASSWORD:-changeme} --authenticationDatabase admin ${MONGODB_INITDB_DATABASE:-supermodel_ai_mongo_db}
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 10s # Give mongo some time to initialize properly
+
+  redis:
+    image: redis:7-alpine # Consider a specific minor version for stability e.g. redis:7.2.4-alpine
+    container_name: ${COMPOSE_PROJECT_NAME:-supermodelai}_redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --save 60 1 --loglevel warning # Example: save snapshot every 60s if at least 1 key changed
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ${COMPOSE_PROJECT_NAME:-supermodelai}_backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: ${BACKEND_PORT:-5000} # This is the internal port the backend listens on
+      # Database URIs for services within Docker network. These override any values from .env file for these specific keys.
+      POSTGRES_URI: "postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/${POSTGRES_DB:-supermodel_ai_db}"
+      MONGODB_URI: "mongodb://${MONGO_INITDB_ROOT_USERNAME:-mongoadmin}:${MONGO_INITDB_ROOT_PASSWORD:-changeme}@mongodb:27017/${MONGODB_INITDB_DATABASE:-supermodel_ai_mongo_db}?authSource=admin&directConnection=true" # Added directConnection=true for some newer drivers
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      # CORS_ORIGIN is loaded from .env by the backend app itself, or can be set here too.
+      # Example: CORS_ORIGIN: http://localhost:${FRONTEND_PORT_HOST:-80} (if frontend is on host port 80)
+    ports:
+      - "${BACKEND_PORT_HOST:-5001}:${BACKEND_PORT:-5000}" # Map internal backend port to a host port (e.g., 5001)
+    # No source code volumes for production builds, image is self-contained.
+    # For development with hot-reloading using nodemon, you'd use a docker-compose.override.yml:
+    # volumes:
+    #   - ./backend/src:/usr/src/app/src
+    #   - ./backend/dist:/usr/src/app/dist # if nodemon watches dist
+    # command: npm run dev
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      # Example for build-time args if frontend needs them and they are not proxied by Nginx at runtime
+      # args:
+      #   REACT_APP_API_URL: "/api" # Nginx will proxy this
+      #   REACT_APP_WEBSOCKET_URL: "/" # Nginx will proxy /socket.io
+    container_name: ${COMPOSE_PROJECT_NAME:-supermodelai}_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend # Frontend Nginx proxies to backend
+    ports:
+      - "${FRONTEND_PORT_HOST:-80}:80"
+    # No volumes needed for frontend in production as Nginx serves from files copied into the image.
+
+volumes:
+  postgres_data:
+    driver: local
+  mongodb_data:
+    driver: local
+  redis_data:
+    driver: local
